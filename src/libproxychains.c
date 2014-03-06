@@ -92,10 +92,19 @@ static void* load_sym(char* symname, void* proxyfunc) {
 	return funcptr;
 }
 
+/* Called by each function everytime they are invoked.
+ * Does one time intialisation of the library to ensure each function
+ * interposes the actual system call.
+ */
 #define INIT() init_lib_wrapper(__FUNCTION__)
 
 #define SETUP_SYM(X) do { true_ ## X = load_sym( # X, X ); } while(0)
 
+/* Sets up the library
+ * 1). Reads the proxy chain information from the config file.
+ * 2). Sets up each of the symbols so they correctly interpose
+ *     their 'true' symbol equivalents.
+ */
 static void do_init(void) {
 	MUTEX_INIT(&internal_ips_lock, NULL);
 
@@ -108,6 +117,8 @@ static void do_init(void) {
 
 	/* read the config file */
 	get_chain_data(proxychains_pd, &proxychains_proxy_count, &proxychains_ct);
+
+	printf("Chain data loaded\n");
 
 	proxychains_write_log(LOG_PREFIX "DLL init\n");
 	SETUP_SYM(connect);
@@ -351,6 +362,10 @@ int connect(int sock, const struct sockaddr *addr, socklen_t len) {
 	INIT();
 	optlen = sizeof(socktype);
 	getsockopt(sock, SOL_SOCKET, SO_TYPE, &socktype, &optlen);
+
+	/* Only support IPv4 / TCP, all else, defer to the underlying
+	 * OS Implementation
+	 */
 	if(!(SOCKFAMILY(*addr) == AF_INET && socktype == SOCK_STREAM))
 		return true_connect(sock, addr, len);
 
@@ -358,14 +373,12 @@ int connect(int sock, const struct sockaddr *addr, socklen_t len) {
 	port = ntohs(((struct sockaddr_in *) addr)->sin_port);
 
 #ifdef DEBUG
-//      PDEBUG("localnet: %s; ", inet_ntop(AF_INET,&in_addr_localnet, str, sizeof(str)));
-//      PDEBUG("netmask: %s; " , inet_ntop(AF_INET, &in_addr_netmask, str, sizeof(str)));
 	PDEBUG("target: %s\n", inet_ntop(AF_INET, p_addr_in, str, sizeof(str)));
 	PDEBUG("port: %d\n", port);
 #endif
 
 	// check if connect called from proxydns
-        remote_dns_connect = (ntohl(p_addr_in->s_addr) >> 24 == remote_dns_subnet);
+    remote_dns_connect = (ntohl(p_addr_in->s_addr) >> 24 == remote_dns_subnet);
 
 	for(i = 0; i < num_localnet_addr && !remote_dns_connect; i++) {
 		if((localnet_addr[i].in_addr.s_addr & localnet_addr[i].netmask.s_addr)

@@ -646,17 +646,30 @@ int connect_proxy_chain(int sock, ip_type target_ip,
 				goto error;
 			break;
 
+		/* Chain mirrors order it appears in config file and each
+		 * proxy chain must be online.
+		 */
 		case STRICT_TYPE:
+			/* Counts the number of proxy entries that are in the
+			 * PLAY_STATE.
+			 */
 			calc_alive(pd, proxy_count);
 			offset = 0;
+
+			/* In this case, select_proxy will choose the next avilable
+			 * proxy that is in the PLAY_STATE.
+			 */
 			if(!(p1 = select_proxy(FIFOLY, pd, proxy_count, &offset))) {
 				PDEBUG("select_proxy failed\n");
 				goto error_strict;
 			}
+
+			/* Connect to the first proxy server in the chain. */
 			if(SUCCESS != start_chain(&ns, p1, ST)) {
 				PDEBUG("start_chain failed\n");
 				goto error_strict;
 			}
+			
 			while(offset < proxy_count) {
 				if(!(p2 = select_proxy(FIFOLY, pd, proxy_count, &offset)))
 					break;
